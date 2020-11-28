@@ -1,28 +1,184 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
-      integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2"
-      crossorigin="anonymous"
-    />
-    <title>AR Test</title>
-  </head>
-  <body>
-    <div class="container text-center">
-      <h1>AR Test</h1>
-      <!-- <video id="video" width="640" height="480" autoplay></video> -->
-      <br />
-      <button class="btn btn-primary" id="get-access">Open cam</button>
-      <br />
-      <div class="embed-responsive embed-responsive-16by9">
-        <video autoplay></video>
-      </div>
-    </div>
-  </body>
-  <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
-  <script src="./index.js"></script>
+<head>
+	<title>Laboratory Apparatus</title>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link rel="stylesheet" href="./style.css">
+
+	<script>
+		if (window.location.protocol == "http:" &&
+				window.location.hostname != "localhost" &&
+				window.location.hostname != "127.0.0.1" &&
+				window.location.hostname != "[::1]") {
+		}
+	</script>
+
+	<script src="https://rawgit.com/aframevr/aframe/master/dist/aframe-master.min.js"></script>
+	<script src="https://unpkg.com/aframe-extras@3.3.0/dist/aframe-extras.min.js"></script>
+	<script
+			src="https://unpkg.com/aframe-environment-component@1.1.0/dist/aframe-environment-component.min.js"></script>
+
+	<script>
+		AFRAME.registerComponent('hide-in-ar-mode', {
+			init: function () {
+				this.el.sceneEl.addEventListener('enter-vr', (ev) => {
+					this.wasVisible = this.el.getAttribute('visible');
+					if (this.el.sceneEl.is('ar-mode')) {
+						this.el.setAttribute('visible', false);
+					}
+				});
+				this.el.sceneEl.addEventListener('exit-vr', (ev) => {
+					if (this.wasVisible) this.el.setAttribute('visible', true);
+				});
+			}
+		});
+
+		AFRAME.registerComponent('ar-shadows', {
+			schema: {
+				opacity: {default: 0.3}
+			},
+			init: function () {
+				this.el.sceneEl.addEventListener('enter-vr', (ev) => {
+					this.wasVisible = this.el.getAttribute('visible');
+					if (this.el.sceneEl.is('ar-mode')) {
+						this.savedMaterial = this.el.object3D.children[0].material;
+						this.el.object3D.children[0].material = new THREE.ShadowMaterial();
+						this.el.object3D.children[0].material.opacity = this.data.opacity;
+						this.el.setAttribute('visible', true);
+					}
+				});
+				this.el.sceneEl.addEventListener('exit-vr', (ev) => {
+					if (this.savedMaterial) {
+						this.el.object3D.children[0].material = this.savedMaterial;
+						this.savedMaterial = null;
+					}
+					if (!this.wasVisible) this.el.setAttribute('visible', false);
+				});
+			}
+		});
+
+		AFRAME.registerComponent('ar-hit-test', {
+			init: function () {
+				this.xrHitTestSource = null;
+				this.viewerSpace = null;
+				this.refSpace = null;
+
+				this.el.sceneEl.renderer.xr.addEventListener('sessionend', (ev) => {
+					this.viewerSpace = null;
+					this.refSpace = null;
+					this.xrHitTestSource = null;
+				});
+				this.el.sceneEl.renderer.xr.addEventListener('sessionstart', (ev) => {
+					let session = this.el.sceneEl.renderer.xr.getSession();
+
+					let element = this.el;
+					session.addEventListener('select', function () {
+						let position = element.getAttribute('position');
+
+						document.getElementById('apparatus').setAttribute('position', position);
+						document.getElementById('light').setAttribute('position', {
+							x: (position.x - 2),
+							y: (position.y + 4),
+							z: (position.z + 2)
+						});
+					});
+
+					session.requestReferenceSpace('viewer').then((space) => {
+						this.viewerSpace = space;
+						session.requestHitTestSource({space: this.viewerSpace})
+								.then((hitTestSource) => {
+									this.xrHitTestSource = hitTestSource;
+								});
+					});
+
+					session.requestReferenceSpace('local-floor').then((space) => {
+						this.refSpace = space;
+					});
+				});
+			},
+			tick: function () {
+				if (this.el.sceneEl.is('ar-mode')) {
+					if (!this.viewerSpace) return;
+
+					let frame = this.el.sceneEl.frame;
+					let xrViewerPose = frame.getViewerPose(this.refSpace);
+
+					if (this.xrHitTestSource && xrViewerPose) {
+						let hitTestResults = frame.getHitTestResults(this.xrHitTestSource);
+						if (hitTestResults.length > 0) {
+							let pose = hitTestResults[0].getPose(this.refSpace);
+
+							let inputMat = new THREE.Matrix4();
+							inputMat.fromArray(pose.transform.matrix);
+
+							let position = new THREE.Vector3();
+							position.setFromMatrixPosition(inputMat);
+							this.el.setAttribute('position', position);
+						}
+					}
+				}
+			}
+		});
+
+	</script>
+</head>
+<body>
+
+<a-scene webxr="requiredFeatures: hit-test,local-floor;">
+	<a-assets>
+		<a-asset-item id="beaker"
+					  src="https://cdn.glitch.com/199fad1c-f556-43cf-a977-66d61f901f8d%2FBeaker.glb"
+					  response-type="arraybuffer"></a-asset-item>
+
+		<a-asset-item id="reticle"
+					  src="reticle.gltf"
+					  response-type="arraybuffer"></a-asset-item>
+	</a-assets>
+
+	<a-camera position="0 1.2 0"></a-camera>
+
+	<a-entity environment="preset: forest; lighting: none; shadow: none; lightPosition: 0 2.15 0"
+			  hide-in-ar-mode></a-entity>
+
+	<a-entity id="apparatus" position="-2 0 -2" scale="0.005 0.005 0.005">
+		<a-entity position="0 2.15 0" rotation="0 55 0"
+				  gltf-model="#beaker"
+				  animation-mixer
+				  shadow="cast: true; receive: false"></a-entity>
+
+		<!-- This shadow-receiving plane is only visible in AR mode.-->
+		<a-plane height="30" width="30" rotation="-90 0 0"
+				 shadow="receive: true"
+				 ar-shadows="opacity: 0.2"
+				 visible="false"></a-plane>
+
+	</a-entity>
+
+	<a-entity light="type: hemisphere; intensity: 1"></a-entity>
+	<a-light type="directional"
+			 light="castShadow: true;
+                      shadowMapHeight: 1024;
+                      shadowMapWidth: 1024;
+                      shadowCameraLeft: -7;
+                      shadowCameraRight: 5;
+                      shadowCameraBottom: -5;
+                      shadowCameraTop: 5;"
+			 id="light"
+			 target="apparatus"
+			 position="-2 4 2">
+	</a-light>
+
+	<a-entity gltf-model="#reticle" scale="0.8 0.8 0.8" ar-hit-test></a-entity>
+</a-scene>
+
+<div id="text">
+	<h1>Laboratory Apparatus for VR/AR</h1>
+	<p>
+		Try the WebXR's AR mode with an Android phone and Chrome (Beta) v81+.
+	</p>
+</div>
+</body>
 </html>
